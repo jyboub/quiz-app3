@@ -24,6 +24,20 @@ body {
   margin-bottom: 16px;
 }
 
+.quiz__status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.progress,
+.score {
+  margin: 0;
+}
+
 .card {
   background: #ffffff;
   border-radius: 12px;
