@@ -1,33 +1,54 @@
-// Liste des questions du quiz
+// Liste des questions du quiz — thème : certification ISTQB CT-AI v2
+// (Certified Tester AI Testing — Testeur certifié pour l'intelligence artificielle)
 const quizData = [
   {
-    question: "Quel langage s'exécute nativement dans le navigateur ?",
-    choices: ["Python", "JavaScript", "C++", "Java"],
-    answerIndex: 1,
-  },
-  {
-    question: "Que signifie HTML ?",
+    question:
+      "Dans le contexte ISTQB CT-AI, que désigne le « biais algorithmique » (algorithmic bias) ?",
     choices: [
-      "HyperText Markup Language",
-      "HighText Machine Language",
-      "Hyperlink and Text Markup Language",
-      "Home Tool Markup Language",
+      "Une préférence systématique du modèle produisant des résultats injustes envers certains groupes",
+      "Une erreur de syntaxe dans le code d'entraînement",
+      "Un ralentissement du temps de réponse du modèle",
+      "Une panne matérielle du serveur d'inférence",
     ],
     answerIndex: 0,
   },
   {
-    question: "Quelle balise CSS permet de changer la couleur du texte ?",
-    choices: ["font-size", "background", "color", "text-align"],
-    answerIndex: 2,
-  },
-  {
-    question: "Quel symbole utilise-t-on pour un commentaire sur une ligne en JavaScript ?",
-    choices: ["<!-- -->", "//", "/* */", "#"],
+    question:
+      "Quel critère de qualité, spécifique aux systèmes d'IA, décrit la capacité à expliquer comment une décision a été prise ?",
+    choices: ["La portabilité", "L'explicabilité (explainability)", "La compatibilité", "La modularité"],
     answerIndex: 1,
   },
   {
-    question: "Quelle méthode ajoute un élément à la fin d'un tableau JavaScript ?",
-    choices: ["push()", "pop()", "shift()", "concat()"],
+    question:
+      "Le « problème de l'oracle de test » est particulièrement marqué pour les systèmes d'IA car :",
+    choices: [
+      "Les tests sont toujours plus rapides à exécuter",
+      "Le résultat attendu exact est souvent difficile, voire impossible, à déterminer",
+      "L'IA ne produit jamais deux fois le même résultat, ce qui simplifie la comparaison",
+      "Les systèmes d'IA n'ont pas besoin de données de test",
+    ],
+    answerIndex: 1,
+  },
+  {
+    question:
+      "Que vise une attaque « adversariale » (adversarial attack) sur un modèle de machine learning ?",
+    choices: [
+      "Améliorer la précision du modèle en production",
+      "Réduire la taille du jeu de données d'entraînement",
+      "Tromper le modèle avec des entrées légèrement modifiées pour provoquer une mauvaise prédiction",
+      "Accélérer la phase d'entraînement",
+    ],
+    answerIndex: 2,
+  },
+  {
+    question:
+      "Le « concept drift » (dérive du concept) désigne :",
+    choices: [
+      "Une évolution des relations entre les données dans le temps, dégradant les performances du modèle",
+      "Une erreur d'arrondi lors du calcul des poids",
+      "Le déplacement physique du serveur d'hébergement",
+      "Un changement de langage de programmation du projet",
+    ],
     answerIndex: 0,
   },
 ];
