@@ -31,13 +31,20 @@ const scoreEl = document.getElementById("score");
 let currentIndex = 0;
 let score = 0;
 
-// Délai (ms) avant de passer automatiquement à la question suivante
-const NEXT_DELAY = 1200;
+// Chargement progressif : les questions arrivent lot par lot en arrière-plan.
+let totalQuestions = QUESTION_COUNT; // total visé (ajusté à la fin si besoin)
+let loadingDone = false; // true quand tous les lots sont revenus
+let pendingNext = false; // true si l'utilisateur attend une question pas encore arrivée
 
 // Met à jour l'indicateur de progression et le score affiché
 function renderStatus() {
-  progressEl.textContent = `Question ${currentIndex + 1}/${quizData.length}`;
+  progressEl.textContent = `Question ${currentIndex + 1}/${totalQuestions}`;
   scoreEl.textContent = `Score : ${score}`;
+}
+
+// La question courante est-elle la dernière ? (connu seulement une fois le chargement fini)
+function isLastQuestion() {
+  return loadingDone && currentIndex >= quizData.length - 1;
 }
 
 // Affiche la question courante et ses choix
@@ -89,15 +96,55 @@ function handleAnswer(index, button) {
 
   renderStatus();
 
-  const isLastQuestion = currentIndex === quizData.length - 1;
-  setTimeout(() => {
-    if (isLastQuestion) {
-      renderResult();
-    } else {
-      currentIndex += 1;
-      renderQuestion();
-    }
-  }, NEXT_DELAY);
+  // Après avoir répondu, l'utilisateur passe à la suite via le bouton « Suivant »
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.className = "next";
+  nextButton.textContent = isLastQuestion() ? "Voir le résultat" : "Question suivante";
+  nextButton.addEventListener("click", goNext);
+
+  const li = document.createElement("li");
+  li.appendChild(nextButton);
+  choicesEl.appendChild(li);
+  nextButton.focus();
+}
+
+// Passe à la question suivante, au résultat, ou attend qu'un lot arrive
+function goNext() {
+  if (isLastQuestion()) {
+    renderResult();
+    return;
+  }
+
+  const next = currentIndex + 1;
+  if (next < quizData.length) {
+    // La question suivante est déjà chargée
+    currentIndex = next;
+    renderQuestion();
+  } else {
+    // Pas encore reçue du proxy : on affiche une attente brève, reprise par onBatch()
+    pendingNext = true;
+    renderWaitingNext();
+  }
+}
+
+// Choisit un message adapté au score final (en pourcentage de réussite)
+function getResultMessage(score, total) {
+  const ratio = total > 0 ? score / total : 0;
+
+  if (ratio === 1) {
+    return `Parfait ! Un sans-faute : ${score}/${total}. Vous maîtrisez ISTQB CT-AI. 🏆`;
+  }
+  if (ratio >= 0.8) {
+    return `Excellent ! ${score}/${total}. Vous êtes presque au point. 🎯`;
+  }
+  if (ratio >= 0.5) {
+    return `Pas mal ! ${score}/${total}. Encore quelques révisions et ce sera parfait. 👍`;
+  }
+  if (ratio > 0) {
+    return `Score : ${score}/${total}. Un peu de révision sur ISTQB CT-AI s'impose. 📚`;
+  }
+  return `Score : ${score}/${total}. Pas de panique, recommencez pour progresser ! 💪`;
 }
 
 // Affiche l'écran de fin avec le score final
@@ -105,7 +152,7 @@ function renderResult() {
   progressEl.textContent = "Quiz terminé";
   scoreEl.textContent = `Score final : ${score}/${quizData.length}`;
 
-  questionEl.textContent = `Bravo ! Vous avez obtenu ${score} sur ${quizData.length}.`;
+  questionEl.textContent = getResultMessage(score, quizData.length);
   choicesEl.innerHTML = "";
   feedbackEl.textContent = "";
   feedbackEl.className = "feedback";
@@ -222,9 +269,11 @@ async function fetchBatch(count, variation) {
   return extractQuestions(payload).map(normalizeQuestion).filter(Boolean);
 }
 
-// Découpe la génération en petits lots parallèles (contourne le timeout 10 s
-// du proxy) puis agrège les questions valides jusqu'à QUESTION_COUNT.
-async function fetchQuestions() {
+// Lance la génération par lots parallèles et appelle onBatch() dès que chacun
+// arrive — sans attendre les autres. Le 1er lot est volontairement petit pour
+// afficher une question le plus vite possible. Renvoie une promesse résolue
+// quand tous les lots sont terminés.
+function startFetching(onBatch) {
   // Angles variés pour limiter les doublons entre lots
   const angles = [
     "Concentre-toi sur les concepts fondamentaux et le vocabulaire.",
@@ -232,38 +281,89 @@ async function fetchQuestions() {
     "Concentre-toi sur les risques, les biais et la qualité des données.",
   ];
 
-  const batches = [];
-  for (let i = 0; i * BATCH_SIZE < QUESTION_COUNT; i++) {
-    const count = Math.min(BATCH_SIZE, QUESTION_COUNT - i * BATCH_SIZE);
-    batches.push(fetchBatch(count, angles[i % angles.length]));
+  // Tailles de lots : 1 d'abord (affichage quasi immédiat), puis le reste par BATCH_SIZE
+  const sizes = [1];
+  let remaining = QUESTION_COUNT - 1;
+  while (remaining > 0) {
+    const n = Math.min(BATCH_SIZE, remaining);
+    sizes.push(n);
+    remaining -= n;
   }
 
-  // Un lot en échec ne doit pas condamner tout le quiz : on garde ce qui a réussi
-  const results = await Promise.allSettled(batches);
-  const questions = results
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => r.value)
-    .slice(0, QUESTION_COUNT);
+  const jobs = sizes.map((count, i) =>
+    fetchBatch(count, angles[i % angles.length])
+      .then((questions) => onBatch(questions))
+      .catch((error) => {
+        console.warn(`Lot ${i + 1} en échec :`, error.message);
+      })
+  );
 
-  if (questions.length === 0) {
-    throw new Error("Aucune question exploitable n'a été générée.");
-  }
-  return questions;
+  return Promise.allSettled(jobs);
 }
 
-// Point d'entrée : génère les questions via l'IA puis démarre le quiz
+// Affiche une brève attente quand l'utilisateur demande une question pas encore reçue
+function renderWaitingNext() {
+  questionEl.textContent = "Chargement de la question suivante…";
+  choicesEl.innerHTML = "";
+  feedbackEl.textContent = "";
+  feedbackEl.className = "feedback";
+}
+
+// Point d'entrée : démarre le quiz dès la 1re question, charge le reste en fond
 async function init() {
   renderLoading();
-  try {
-    quizData = await fetchQuestions();
-    currentIndex = 0;
-    score = 0;
-    renderQuestion();
-  } catch (error) {
-    console.error("Échec de la génération des questions :", error);
+
+  quizData = [];
+  currentIndex = 0;
+  score = 0;
+  totalQuestions = QUESTION_COUNT;
+  loadingDone = false;
+  pendingNext = false;
+
+  // Reçoit un lot : ajoute ses questions et débloque l'affichage si nécessaire
+  const onBatch = (questions) => {
+    if (!questions || questions.length === 0) return;
+
+    const wasEmpty = quizData.length === 0;
+    quizData.push(...questions.slice(0, QUESTION_COUNT - quizData.length));
+
+    if (wasEmpty) {
+      // Première question disponible → on démarre immédiatement
+      renderQuestion();
+    } else if (pendingNext && currentIndex + 1 < quizData.length) {
+      // L'utilisateur attendait la suite → on la lui montre
+      pendingNext = false;
+      currentIndex += 1;
+      renderQuestion();
+    }
+  };
+
+  await startFetching(onBatch);
+
+  // Chargement terminé : on cale le total réel et on rafraîchit l'affichage
+  loadingDone = true;
+
+  if (quizData.length === 0) {
     renderError(
       "Impossible de générer les questions pour le moment. Vérifiez votre connexion, puis réessayez."
     );
+    return;
+  }
+
+  totalQuestions = quizData.length;
+
+  if (pendingNext) {
+    // L'utilisateur attend encore alors que tout est chargé : plus rien à venir
+    pendingNext = false;
+    if (currentIndex + 1 < quizData.length) {
+      currentIndex += 1;
+      renderQuestion();
+    } else {
+      renderResult();
+    }
+  } else {
+    // Rafraîchit l'indicateur « X/total » et l'éventuel bouton de fin
+    renderStatus();
   }
 }
 
