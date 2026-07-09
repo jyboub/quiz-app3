@@ -1,3 +1,59 @@
+// Connexion Supabase
+const SUPABASE_URL = "https://gysybzdqrmxnxwodcaju.supabase.co";
+const SUPABASE_KEY = "sb_publishable_kEmDn9lzusPbt03GVp8ZfA_ybdjwlsb";
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log(
+  supabaseClient ? "Client Supabase initialisé ✅" : "Échec de l'initialisation du client Supabase ❌"
+);
+
+// Insère une question générée dans la table Supabase (contexte = 'quiz').
+// Le thème est récupéré depuis la valeur réellement utilisée dans l'app (QUIZ_THEME),
+// jamais codé en dur ici. `question` est déjà parsée/nettoyée en amont.
+async function insertQuestion(question) {
+  const { error } = await supabaseClient.from("questions_classe3").insert({
+    texte: question.question,
+    choix: question.choices, // jsonb : tableau de strings
+    bonne_reponse: question.choices[question.answerIndex],
+    difficulte: "moyenne",
+    theme: QUIZ_THEME, // thème réellement sélectionné dans le code existant
+    statut: "valide",
+    contexte: "quiz",
+  });
+
+  if (error) {
+    console.warn("Échec de l'insertion Supabase :", error.message);
+  }
+}
+
+// Lit les questions déjà en base pour le thème courant (contexte = 'quiz').
+// Filtre sur le MÊME thème que celui utilisé à l'insertion (QUIZ_THEME).
+// Renvoie une liste au format interne { question, choices, answerIndex }.
+async function fetchQuestionsFromDb() {
+  const { data, error } = await supabaseClient
+    .from("questions_classe3")
+    .select("texte, choix, bonne_reponse")
+    .eq("contexte", "quiz")
+    .eq("theme", QUIZ_THEME)
+    .limit(QUESTION_COUNT);
+
+  if (error) {
+    console.warn("Échec de la lecture Supabase :", error.message);
+    return [];
+  }
+
+  // Reconstruit answerIndex à partir du texte de la bonne réponse stocké en base
+  return (data || [])
+    .map((row) =>
+      normalizeQuestion({
+        question: row.texte,
+        choices: row.choix,
+        answerIndex: Array.isArray(row.choix) ? row.choix.indexOf(row.bonne_reponse) : -1,
+      })
+    )
+    .filter(Boolean);
+}
+
 // Configuration de la génération par IA (proxy Vercel : relaie vers l'API Anthropic)
 const API_URL = "https://quiz-proxy3.vercel.app/api/ask-claude";
 const QUIZ_THEME = "la certification ISTQB CT-AI v2 (Certified Tester AI Testing)";
@@ -320,12 +376,29 @@ async function init() {
   loadingDone = false;
   pendingNext = false;
 
+  // 1) Réutiliser en priorité les questions déjà en base pour ce thème.
+  //    Si la base en fournit assez, on évite complètement l'appel à l'IA.
+  const dbQuestions = await fetchQuestionsFromDb();
+  if (dbQuestions.length >= QUESTION_COUNT) {
+    quizData = dbQuestions.slice(0, QUESTION_COUNT);
+    totalQuestions = quizData.length;
+    loadingDone = true;
+    console.log(`Questions chargées depuis Supabase (${quizData.length}) — pas d'appel IA.`);
+    renderQuestion();
+    return;
+  }
+
+  // 2) Sinon, générer via l'IA (comportement existant inchangé).
   // Reçoit un lot : ajoute ses questions et débloque l'affichage si nécessaire
   const onBatch = (questions) => {
     if (!questions || questions.length === 0) return;
 
     const wasEmpty = quizData.length === 0;
-    quizData.push(...questions.slice(0, QUESTION_COUNT - quizData.length));
+    const added = questions.slice(0, QUESTION_COUNT - quizData.length);
+    quizData.push(...added);
+
+    // Persiste chaque nouvelle question générée dans Supabase (sans bloquer l'affichage)
+    added.forEach((q) => insertQuestion(q));
 
     if (wasEmpty) {
       // Première question disponible → on démarre immédiatement
